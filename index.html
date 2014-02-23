@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Public-company-dedupe by tothebeat</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="javascripts/scale.fix.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1 class="header">Public-company-dedupe</h1>
+        <p class="header">Deduplicating entries of a CSV file, containing data scraped from Bloomberg.</p>
+
+        <ul>
+          <li class="download"><a class="buttons" href="https://github.com/tothebeat/public-company-dedupe/zipball/master">Download ZIP</a></li>
+          <li class="download"><a class="buttons" href="https://github.com/tothebeat/public-company-dedupe/tarball/master">Download TAR</a></li>
+          <li><a class="buttons github" href="https://github.com/tothebeat/public-company-dedupe">View On GitHub</a></li>
+        </ul>
+
+        <p class="header">This project is maintained by <a class="header name" href="https://github.com/tothebeat">tothebeat</a></p>
+
+
+      </header>
+      <section>
+        <p>This script operates on the CSV output of a Bloomberg scraper, data representing
+public companies from around the world. Each entry represents a company listed on a
+stock exchange somewhere in the world. An example entry from the CSV file:</p>
+
+<pre><code>'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'Frankfurt',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '21.91',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'DFK:GR',
+'WEBSITE': 'www.01com.com'
+</code></pre>
+
+<p>Companies are uniquely identified by name and address, and there is a 1:1 correspondence
+between name and address. Frequently there are duplicate listings of companies, as they may be
+traded on more than one stock exchange in the world. Using the example above of the company
+named "01 Communique Laboratory Inc", there are two more listings:</p>
+
+<pre><code>'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'Toronto',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '35.21',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'ONE:CN',
+'WEBSITE': 'www.01com.com'
+
+'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'OTC  US',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '32.47',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'OCQLF:US',
+'WEBSITE': 'www.01com.com'
+</code></pre>
+
+<p>The second listing is on a Canadian stock exchange, and the company's address shows that
+the company is based in Canada, so we'll count the first and third listings as duplicates
+and remove them.</p>
+
+<p>These other listings may still be interesting, so we'll add on a column called <strong>ALL_TICKERS</strong>
+that is a comma-separated list of the <strong>TICKER</strong> values for each of the original duplicate
+listings.</p>
+
+<p>Sometimes, a company will be listed on two or more exchanges in its home country, and then
+we choose the listing with the bigger <strong>MARKET_CAP</strong> value.</p>
+
+<p>If a company has more than one listing in the CSV file but none of them are on exchanges in
+the company's home country, we choose one of the listings arbitrarily to represent the
+company.</p>
+      </section>
+      <footer>
+        <p><small>Hosted on <a href="http://pages.github.com">GitHub Pages</a> using the Dinky theme</small></p>
+      </footer>
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+		
+  </body>
+</html>
