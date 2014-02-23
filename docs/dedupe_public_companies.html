@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html;charset=utf-8">
+  <title>dedupe_public_companies.py</title>
+  <link rel="stylesheet" href="pycco.css">
+</head>
+<body>
+<div id="background"></div>
+<div id='container'>
+  <div class='section'>
+    <div class='docs'><h1>dedupe_public_companies.py</h1></div>
+  </div>
+  <div class='clearall'>
+  <div class='section' id='section-0'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-0'>#</a>
+      </div>
+      <p>This script operates on the CSV output of a Bloomberg scraper, data representing
+public companies from around the world. Each entry represents a company listed on a
+stock exchange somewhere in the world. An example entry from the CSV file:</p>
+<pre><code>'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'Frankfurt',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '21.91',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'DFK:GR',
+'WEBSITE': 'www.01com.com'
+</code></pre>
+<p>Companies are uniquely identified by name and address, and there is a 1:1 correspondence
+between name and address. Frequently there are duplicate listings of companies, as they may be
+traded on more than one stock exchange in the world. Using the example above of the company
+named "01 Communique Laboratory Inc", there are two more listings:</p>
+<pre><code>'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'Toronto',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '35.21',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'ONE:CN',
+'WEBSITE': 'www.01com.com'
+
+'ADDRESS': '1450 Meyerside Drive Suite 500 Mississauga, ON L5T 2N5 Canada',
+'COUNTRY': 'Canada',
+'DESCRIPTION': '[...]',
+'EXCHANGE': 'OTC  US',
+'INDUSTRY': 'Software',
+'MARKET_CAP': '32.47',
+'NAME': '01 Communique Laboratory Inc',
+'PHONE': '1-905-795-2888',
+'SECTOR': 'Technology',
+'SUB_INDUSTRY': 'Application Software',
+'TICKER': 'OCQLF:US',
+'WEBSITE': 'www.01com.com'
+</code></pre>
+<p>The second listing is on a Canadian stock exchange, and the company's address shows that
+the company is based in Canada, so we'll count the first and third listings as duplicates
+and remove them.</p>
+<p>These other listings may still be interesting, so we'll add on a column called <strong>ALL_TICKERS</strong>
+that is a comma-separated list of the <strong>TICKER</strong> values for each of the original duplicate
+listings.</p>
+<p>Sometimes, a company will be listed on two or more exchanges in its home country, and then
+we choose the listing with the bigger <strong>MARKET_CAP</strong> value.</p>
+<p>If a company has more than one listing in the CSV file but none of them are on exchanges in
+the company's home country, we choose one of the listings arbitrarily to represent the
+company. </p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-1'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-1'>#</a>
+      </div>
+      
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">import</span> <span class="nn">csv</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">sys</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-2'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-2'>#</a>
+      </div>
+      <p>A hand-curated list of stock exchange symbols as they appear in the <strong>TICKER</strong> field,
+and the corresponding country where the stock exchange is located.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="n">symbol_to_country</span> <span class="o">=</span> <span class="p">{</span>
+	<span class="s">&#39;AB&#39;</span><span class="p">:</span> <span class="s">&#39;Saudi Arabia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;AU&#39;</span><span class="p">:</span> <span class="s">&#39;Australia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;AV&#39;</span><span class="p">:</span> <span class="s">&#39;Austria&#39;</span><span class="p">,</span>
+	<span class="s">&#39;BB&#39;</span><span class="p">:</span> <span class="s">&#39;Belgium&#39;</span><span class="p">,</span>
+	<span class="s">&#39;BZ&#39;</span><span class="p">:</span> <span class="s">&#39;Brazil&#39;</span><span class="p">,</span>
+	<span class="s">&#39;CB&#39;</span><span class="p">:</span> <span class="s">&#39;Colombia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;CH&#39;</span><span class="p">:</span> <span class="s">&#39;China&#39;</span><span class="p">,</span>
+	<span class="s">&#39;CI&#39;</span><span class="p">:</span> <span class="s">&#39;Chile&#39;</span><span class="p">,</span>
+	<span class="s">&#39;CN&#39;</span><span class="p">:</span> <span class="s">&#39;Canada&#39;</span><span class="p">,</span>
+	<span class="s">&#39;DC&#39;</span><span class="p">:</span> <span class="s">&#39;Denmark&#39;</span><span class="p">,</span>
+	<span class="s">&#39;DU&#39;</span><span class="p">:</span> <span class="s">&#39;Dubai&#39;</span><span class="p">,</span>
+	<span class="s">&#39;FH&#39;</span><span class="p">:</span> <span class="s">&#39;Finland&#39;</span><span class="p">,</span>
+	<span class="s">&#39;FP&#39;</span><span class="p">:</span> <span class="s">&#39;France&#39;</span><span class="p">,</span>
+	<span class="s">&#39;G4&#39;</span><span class="p">:</span> <span class="s">&#39;Denmark&#39;</span><span class="p">,</span>
+	<span class="s">&#39;GA&#39;</span><span class="p">:</span> <span class="s">&#39;Greece&#39;</span><span class="p">,</span>
+	<span class="s">&#39;GR&#39;</span><span class="p">:</span> <span class="s">&#39;Germany&#39;</span><span class="p">,</span>
+	<span class="s">&#39;HK&#39;</span><span class="p">:</span> <span class="s">&#39;Hong Kong&#39;</span><span class="p">,</span>
+	<span class="s">&#39;ID&#39;</span><span class="p">:</span> <span class="s">&#39;Ireland&#39;</span><span class="p">,</span>
+	<span class="s">&#39;IJ&#39;</span><span class="p">:</span> <span class="s">&#39;Indonesia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;IM&#39;</span><span class="p">:</span> <span class="s">&#39;Italy&#39;</span><span class="p">,</span>
+	<span class="s">&#39;IN&#39;</span><span class="p">:</span> <span class="s">&#39;India&#39;</span><span class="p">,</span>
+	<span class="s">&#39;IT&#39;</span><span class="p">:</span> <span class="s">&#39;Israel&#39;</span><span class="p">,</span>
+	<span class="s">&#39;JP&#39;</span><span class="p">:</span> <span class="s">&#39;Japan&#39;</span><span class="p">,</span>
+	<span class="s">&#39;KS&#39;</span><span class="p">:</span> <span class="s">&#39;South Korea&#39;</span><span class="p">,</span>
+	<span class="s">&#39;LI&#39;</span><span class="p">:</span> <span class="s">&#39;United Kingdom&#39;</span><span class="p">,</span>
+	<span class="s">&#39;LN&#39;</span><span class="p">:</span> <span class="s">&#39;United Kingdom&#39;</span><span class="p">,</span>
+	<span class="s">&#39;MK&#39;</span><span class="p">:</span> <span class="s">&#39;Malaysia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;MM&#39;</span><span class="p">:</span> <span class="s">&#39;Mexico&#39;</span><span class="p">,</span>
+	<span class="s">&#39;NA&#39;</span><span class="p">:</span> <span class="s">&#39;Netherlands&#39;</span><span class="p">,</span>
+	<span class="s">&#39;NL&#39;</span><span class="p">:</span> <span class="s">&#39;Nigeria&#39;</span><span class="p">,</span>
+	<span class="s">&#39;NO&#39;</span><span class="p">:</span> <span class="s">&#39;Norway&#39;</span><span class="p">,</span>
+	<span class="s">&#39;NZ&#39;</span><span class="p">:</span> <span class="s">&#39;New Zeland&#39;</span><span class="p">,</span>
+	<span class="s">&#39;PM&#39;</span><span class="p">:</span> <span class="s">&#39;Philippines&#39;</span><span class="p">,</span>
+	<span class="s">&#39;PZ&#39;</span><span class="p">:</span> <span class="s">&#39;United Kingdom&#39;</span><span class="p">,</span>
+	<span class="s">&#39;RM&#39;</span><span class="p">:</span> <span class="s">&#39;Russia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;RU&#39;</span><span class="p">:</span> <span class="s">&#39;Russia&#39;</span><span class="p">,</span>
+	<span class="s">&#39;SJ&#39;</span><span class="p">:</span> <span class="s">&#39;South Africa&#39;</span><span class="p">,</span>
+	<span class="s">&#39;SM&#39;</span><span class="p">:</span> <span class="s">&#39;Spain&#39;</span><span class="p">,</span>
+	<span class="s">&#39;SP&#39;</span><span class="p">:</span> <span class="s">&#39;Singapore&#39;</span><span class="p">,</span>
+	<span class="s">&#39;SS&#39;</span><span class="p">:</span> <span class="s">&#39;Sweden&#39;</span><span class="p">,</span>
+	<span class="s">&#39;SW&#39;</span><span class="p">:</span> <span class="s">&#39;Switzerland&#39;</span><span class="p">,</span>
+	<span class="s">&#39;TB&#39;</span><span class="p">:</span> <span class="s">&#39;Thailand&#39;</span><span class="p">,</span>
+	<span class="s">&#39;TI&#39;</span><span class="p">:</span> <span class="s">&#39;Turkey&#39;</span><span class="p">,</span>
+	<span class="s">&#39;TT&#39;</span><span class="p">:</span> <span class="s">&#39;Taiwan&#39;</span><span class="p">,</span>
+	<span class="s">&#39;UH&#39;</span><span class="p">:</span> <span class="s">&#39;UAE&#39;</span><span class="p">,</span>
+	<span class="s">&#39;US&#39;</span><span class="p">:</span> <span class="s">&#39;United States&#39;</span><span class="p">,</span>
+	<span class="s">&#39;VX&#39;</span><span class="p">:</span> <span class="s">&#39;Switzerland&#39;</span>
+<span class="p">}</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-3'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-3'>#</a>
+      </div>
+      <p>Given a set of listings, get the unique <strong>TICKER</strong> values, sort them alphabetically,
+and list them in a string separated by commas. For example, using the listings
+from the top of this file this function would return "DFK:GR, OCQLF:US, ONE:CN"</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">tickers_from_listings</span><span class="p">(</span><span class="n">listings</span><span class="p">):</span>
+	<span class="n">tickers</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">listing</span><span class="p">[</span><span class="s">&#39;TICKER&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">listing</span> <span class="ow">in</span> <span class="n">listings</span><span class="p">])))</span>
+	<span class="k">return</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tickers</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&quot;__main__&quot;</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-4'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-4'>#</a>
+      </div>
+      <p>The input and output filenames are given as command-line parameters to this script.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>	<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+		<span class="k">print</span> <span class="s">&quot;Syntax:&quot;</span>
+		<span class="k">print</span> <span class="s">&quot;python {0} input.csv output.csv&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">__file__</span><span class="p">)</span>
+		<span class="nb">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+	<span class="n">input_filename</span><span class="p">,</span> <span class="n">output_filename</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-5'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-5'>#</a>
+      </div>
+      <p>Logging automatically, verbosely, to a log file named after the input filename.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>	<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">input_filename</span> <span class="o">+</span> <span class="s">&#39;.log&#39;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-6'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-6'>#</a>
+      </div>
+      <p>Read the listings in from the original CSV file, containing the data scraped from Bloomberg.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>	<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">input_filename</span><span class="p">,</span> <span class="s">&#39;U&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+		<span class="n">listings</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">csv</span><span class="o">.</span><span class="n">DictReader</span><span class="p">(</span><span class="n">f</span><span class="p">))</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Loaded {0} company listings from </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="nb">len</span><span class="p">(</span><span class="n">listings</span><span class="p">),</span> <span class="n">input_filename</span><span class="p">))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-7'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-7'>#</a>
+      </div>
+      <p>We'll associate the listings with the unique company names using a dictionary data structure,
+simplifying the task of finding whether there are duplicate listings.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>	<span class="n">listings_by_name</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[])</span>
+	<span class="k">for</span> <span class="n">listing</span> <span class="ow">in</span> <span class="n">listings</span><span class="p">:</span>
+		<span class="n">listings_by_name</span><span class="p">[</span><span class="n">listing</span><span class="p">[</span><span class="s">&#39;NAME&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">listing</span><span class="p">)</span>
+	<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Found {0} unique company names.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+		<span class="nb">len</span><span class="p">(</span><span class="n">listings_by_name</span><span class="p">)))</span>
+
+	<span class="n">deduped_listings</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="k">for</span> <span class="n">company_name</span><span class="p">,</span> <span class="n">company_listings</span> <span class="ow">in</span> <span class="n">listings_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-8'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-8'>#</a>
+      </div>
+      <p>For each company, uniquely identified by company name, we want
+a single listing. Initialize this dictionary with 'ALL_TICKERS'
+containing a comma-separated list of all tickers from all listings
+for the associated company name.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>		<span class="n">main_listing</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;ALL_TICKERS&#39;</span><span class="p">:</span> <span class="n">tickers_from_listings</span><span class="p">(</span><span class="n">company_listings</span><span class="p">)}</span>
+		<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">company_listings</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;For company </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> there is only one listing.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="n">company_name</span><span class="p">))</span>
+			<span class="n">main_listing</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">company_listings</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Company </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> has {1} listings, time to deduplicate.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="n">company_name</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">company_listings</span><span class="p">)))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-9'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-9'>#</a>
+      </div>
+      <p>More than one listing for this company name, now we need to deduplicate.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>			<span class="n">home_listings</span> <span class="o">=</span> <span class="p">[]</span>
+			<span class="k">for</span> <span class="n">listing</span> <span class="ow">in</span> <span class="n">company_listings</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-10'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-10'>#</a>
+      </div>
+      <p>The contents of TICKER will be something like "DFK:GR", where
+the part before the colon, "DFK", is the ticker symbol for the company
+and the part after the colon, "US", signifies the location of
+the exchange.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>				<span class="n">exchange_symbol</span> <span class="o">=</span> <span class="n">listing</span><span class="p">[</span><span class="s">&#39;TICKER&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+				<span class="k">if</span> <span class="n">symbol_to_country</span><span class="p">[</span><span class="n">exchange_symbol</span><span class="p">]</span> <span class="ow">in</span> <span class="n">listing</span><span class="p">[</span><span class="s">&#39;ADDRESS&#39;</span><span class="p">]:</span>
+					<span class="n">home_listings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">listing</span><span class="p">)</span>
+			<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">home_listings</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-11'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-11'>#</a>
+      </div>
+      <p>If there's more than one listing, take the one with the largest
+market cap.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Found {0} home listings for company </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">, choosing by max market cap.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+					<span class="nb">len</span><span class="p">(</span><span class="n">home_listings</span><span class="p">),</span> <span class="n">company_name</span><span class="p">))</span>
+				<span class="n">main_listing</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">home_listings</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">listing</span><span class="p">:</span> <span class="n">listing</span><span class="p">[</span><span class="s">&#39;MARKET_CAP&#39;</span><span class="p">]))</span>
+			<span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">home_listings</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Found 1 home listing for company </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">company_name</span><span class="p">))</span>
+				<span class="n">main_listing</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">home_listings</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+			<span class="k">else</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-12'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-12'>#</a>
+      </div>
+      <p>There were no home listings found, welp!</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>				<span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;No home listing found for company </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> located at </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+						<span class="n">company_name</span><span class="p">,</span> <span class="n">company_listings</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;ADDRESS&#39;</span><span class="p">]))</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;Tickers for company </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> are: {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+						<span class="n">company_name</span><span class="p">,</span> <span class="n">main_listing</span><span class="p">[</span><span class="s">&#39;ALL_TICKERS&#39;</span><span class="p">]))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-13'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-13'>#</a>
+      </div>
+      <p>We'll take the first listing, just so we don't forget this company
+entirely.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>				<span class="n">main_listing</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">company_listings</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;Picking ticker </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> as representative listing for company </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+					<span class="n">main_listing</span><span class="p">[</span><span class="s">&#39;TICKER&#39;</span><span class="p">],</span> <span class="n">company_name</span><span class="p">))</span>
+		<span class="n">deduped_listings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">main_listing</span><span class="p">)</span>
+
+	<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Deduplicated to {0} listings, which should be the same as the number of companies ({1}).&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+		<span class="nb">len</span><span class="p">(</span><span class="n">deduped_listings</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">listings_by_name</span><span class="p">)))</span>
+
+	<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_filename</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+		<span class="n">dict_writer</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">DictWriter</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">fieldnames</span><span class="o">=</span><span class="n">deduped_listings</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+		<span class="n">dict_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
+		<span class="n">dict_writer</span><span class="o">.</span><span class="n">writerows</span><span class="p">(</span><span class="n">deduped_listings</span><span class="p">)</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Wrote deduped listings to file </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s">.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">output_filename</span><span class="p">))</span>
+
+</pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+</div>
+</body>
