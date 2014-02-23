@@ -138,7 +138,7 @@ if __name__=="__main__":
 
 	input_filename, output_filename = sys.argv[1:3]
 	# Logging automatically, verbosely, to a log file named after the input filename.
-	logging.basicConfig(filename=input_filename + '.log', level=logging.DEBUG)
+	logging.basicConfig(filename=input_filename + '.log', level=logging.WARNING)
 
 	# Read the listings in from the original CSV file, containing the data scraped from Bloomberg.
 	with open(input_filename, 'U') as f:
